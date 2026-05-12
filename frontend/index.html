@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Reservas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Toast animations */
+        .toast-enter { animation: slideIn 0.3s ease; }
+        .toast-leave { animation: slideOut 0.3s ease forwards; }
+        @keyframes slideIn {
+            from { transform: translateX(120%); opacity: 0; }
+            to   { transform: translateX(0);    opacity: 1; }
+        }
+        @keyframes slideOut {
+            from { transform: translateX(0);    opacity: 1; }
+            to   { transform: translateX(120%); opacity: 0; }
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 20px; height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            display: inline-block;
+        }
+        .spinner-dark {
+            border-color: rgba(100,116,139,0.3);
+            border-top-color: #475569;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Modal backdrop */
+        .modal-backdrop {
+            animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+        .modal-box {
+            animation: popIn 0.2s ease;
+        }
+        @keyframes popIn {
+            from { transform: scale(0.9); opacity: 0; }
+            to   { transform: scale(1);   opacity: 1; }
+        }
+
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div id="app" class="min-h-screen flex flex-col" v-cloak>
+
+        <!-- ================================================ -->
+        <!-- TOASTS                                           -->
+        <!-- ================================================ -->
+        <div class="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-sm w-full">
+            <div v-for="toast in toasts" :key="toast.id"
+                class="toast-enter flex items-start justify-between gap-3 px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium"
+                :class="toast.tipo === 'erro' ? 'bg-red-500' : 'bg-green-500'">
+                <div class="flex items-center gap-2">
+                    <span v-if="toast.tipo === 'erro'">❌</span>
+                    <span v-else>✅</span>
+                    <span>{{ toast.mensagem }}</span>
+                </div>
+                <button @click="fecharToast(toast.id)" class="text-white/80 hover:text-white font-bold text-lg leading-none">×</button>
+            </div>
+        </div>
+
+        <!-- ================================================ -->
+        <!-- MODAL DE CANCELAMENTO                            -->
+        <!-- ================================================ -->
+        <div v-if="modal.visivel" class="modal-backdrop fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4">
+            <div class="modal-box bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-500 text-xl">🗑️</div>
+                    <h3 class="text-lg font-bold text-slate-800">Cancelar Reserva</h3>
+                </div>
+                <p class="text-slate-600 mb-2">Tem certeza que deseja cancelar esta reserva?</p>
+                <div v-if="modal.reserva" class="bg-slate-50 rounded-lg p-3 mb-6 text-sm text-slate-700 space-y-1">
+                    <p><strong>Sala:</strong> {{ modal.reserva.sala }}</p>
+                    <p><strong>Data:</strong> {{ new Date(modal.reserva.data_reserva).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) }}</p>
+                    <p><strong>Horário:</strong> {{ modal.reserva.hora_inicio.substring(0,5) }} - {{ modal.reserva.hora_fim.substring(0,5) }}</p>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="fecharModal" class="flex-1 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 transition">
+                        Voltar
+                    </button>
+                    <button @click="confirmarCancelamento" class="flex-1 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition">
+                        Sim, cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================================================ -->
+        <!-- HEADER                                           -->
+        <!-- ================================================ -->
+        <header class="cabecalho-principal">
+            <div class="container mx-auto flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-white p-2 rounded-lg shadow-sm flex items-center gap-2 texto-primario">
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z"/></svg>
+                        <span class="font-black text-lg tracking-widest text-slate-800">RESERVAS<span class="texto-primario">.TEST</span></span>
+                    </div>
+                </div>
+                <div v-if="usuarioLogado" class="flex items-center gap-4 drop-shadow-md">
+                    <span class="text-xs md:text-sm bg-slate-900 px-3 py-1 rounded border border-slate-700">
+                        {{ usuarioLogado.nome }}
+                    </span>
+                    <button @click="sairSistema" class="text-xs font-bold hover:text-blue-400 transition bg-white text-slate-800 px-3 py-1 rounded">Sair</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="container mx-auto p-4 flex-1">
+
+            <!-- ============================================ -->
+            <!-- TELA DE LOGIN                               -->
+            <!-- ============================================ -->
+            <section v-if="tela === 'login'" class="card-auth">
+                <h2 class="text-xl font-bold mb-6 text-center text-slate-800">Acesso Interno</h2>
+                <form @submit.prevent="acaoLogin" class="space-y-4">
+                    <div>
+                        <label class="label-padrao">CPF</label>
+                        <input v-model="formLogin.cpf" type="text" required class="input-padrao">
+                    </div>
+                    <div>
+                        <label class="label-padrao">Senha</label>
+                        <div class="relative">
+                            <input v-model="formLogin.senha" :type="mostrarSenhaLogin ? 'text' : 'password'" required maxlength="6" inputmode="numeric" class="input-padrao pr-10">
+                            <button type="button" @click="mostrarSenhaLogin = !mostrarSenhaLogin" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                                <span v-if="mostrarSenhaLogin">🙈</span>
+                                <span v-else>👁️</span>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" :disabled="carregando" class="btn-primario flex items-center justify-center gap-2">
+                        <span v-if="carregando" class="spinner"></span>
+                        <span>{{ carregando ? 'Entrando...' : 'ENTRAR' }}</span>
+                    </button>
+                    <button @click="tela = 'registro'" type="button" class="w-full text-sm mt-2 link-primario">Criar nova conta</button>
+                </form>
+            </section>
+
+            <!-- ============================================ -->
+            <!-- TELA DE REGISTRO                            -->
+            <!-- ============================================ -->
+            <section v-if="tela === 'registro'" class="card-auth">
+                <h2 class="text-xl font-bold mb-6 text-center text-slate-800">Novo Cadastro</h2>
+                <form @submit.prevent="acaoRegistro" class="space-y-4">
+                    <div>
+                        <label class="label-padrao">Nome Completo</label>
+                        <input v-model="formReg.nome" type="text" required class="input-padrao">
+                    </div>
+                    <div>
+                        <label class="label-padrao">E-mail Institucional</label>
+                        <input v-model="formReg.email" type="email" required class="input-padrao">
+                    </div>
+                    <div>
+                        <label class="label-padrao">Confirmar E-mail</label>
+                        <input v-model="formReg.confirmacaoEmail" type="email" required class="input-padrao">
+                    </div>
+                    <div>
+                        <label class="label-padrao">Setor</label>
+                        <input v-model="formReg.setor" type="text" required class="input-padrao">
+                    </div>
+                    <div>
+                        <label class="label-padrao">CPF (Apenas números)</label>
+                        <input v-model="formReg.cpf" type="text" required class="input-padrao">
+                    </div>
+                    <div>
+                        <label class="label-padrao">Senha (6 números)</label>
+                        <div class="relative">
+                            <input v-model="formReg.senha" :type="mostrarSenhaReg ? 'text' : 'password'" required maxlength="6" inputmode="numeric" class="input-padrao pr-10">
+                            <button type="button" @click="mostrarSenhaReg = !mostrarSenhaReg" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                                <span v-if="mostrarSenhaReg">🙈</span>
+                                <span v-else>👁️</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="label-padrao">Confirmar Senha</label>
+                        <div class="relative">
+                            <input v-model="formReg.confirmacaoSenha" :type="mostrarSenhaRegConf ? 'text' : 'password'" required maxlength="6" inputmode="numeric" class="input-padrao pr-10">
+                            <button type="button" @click="mostrarSenhaRegConf = !mostrarSenhaRegConf" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                                <span v-if="mostrarSenhaRegConf">🙈</span>
+                                <span v-else>👁️</span>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" :disabled="carregando" class="btn-primario flex items-center justify-center gap-2">
+                        <span v-if="carregando" class="spinner"></span>
+                        <span>{{ carregando ? 'Cadastrando...' : 'REGISTRAR' }}</span>
+                    </button>
+                    <button @click="tela = 'login'" type="button" class="w-full text-sm text-slate-500 mt-2 hover:underline">Voltar ao login</button>
+                </form>
+            </section>
+
+            <!-- ============================================ -->
+            <!-- PAINEL PRINCIPAL                            -->
+            <!-- ============================================ -->
+            <section v-if="tela === 'painel'" class="max-w-5xl mx-auto mt-6">
+
+                <div class="flex border-b-2 border-slate-200 mb-6 bg-white rounded-t-lg shadow-sm overflow-hidden">
+                    <button @click="abaAtiva = 'salas'" :class="abaAtiva === 'salas' ? 'border-b-4 border-blue-600 bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:bg-slate-50'" class="flex-1 py-4 text-center transition">
+                        Agendar Salas
+                    </button>
+                    <button @click="abaAtiva = 'reservas'" :class="abaAtiva === 'reservas' ? 'border-b-4 border-blue-600 bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:bg-slate-50'" class="flex-1 py-4 text-center transition">
+                        Minhas Reservas
+                    </button>
+                </div>
+
+                <!-- ABA SALAS -->
+                <div v-if="abaAtiva === 'salas'">
+
+                    <!-- LISTA DE SALAS -->
+                    <div v-if="!salaEscolhida" class="grid md:grid-cols-2 gap-6 p-4">
+                        <div v-for="sala in salasDisponiveis" :key="sala.id_sala" @click="salaEscolhida = sala" class="bg-white p-10 rounded-xl shadow-md cursor-pointer border-2 border-transparent hover:border-blue-600 transition-all text-center group">
+                            <h3 class="text-2xl font-bold text-slate-800 group-hover:text-blue-600 transition">{{ sala.nome }}</h3>
+                            <p class="text-slate-500 mt-2">{{ sala.localizacao }}</p>
+                            <p class="text-slate-400 text-sm mt-1">Capacidade: {{ sala.capacidade }} pessoas</p>
+                        </div>
+                    </div>
+
+                    <!-- CALENDÁRIO E HORÁRIOS -->
+                    <div v-else class="bg-white p-6 rounded-lg shadow-lg border-t-4 border-slate-800">
+                        <div class="flex flex-col md:flex-row gap-8">
+
+                            <div class="flex-1">
+                                <div class="flex justify-between items-center mb-6 border-b pb-4">
+                                    <button @click="salaEscolhida = null; diaEscolhido = null; horarios = []" class="text-blue-600 font-bold hover:underline">← Voltar</button>
+                                    <h2 class="text-xl font-bold text-slate-800">{{ salaEscolhida.nome }}</h2>
+                                </div>
+
+                                <div class="flex gap-2 justify-between items-center bg-slate-50 p-3 rounded mb-4 border shadow-inner">
+                                    <button @click="mudarMes(-1)" class="px-4 py-2 bg-white border shadow-sm rounded hover:bg-slate-100 font-bold text-slate-600">◀</button>
+                                    <span class="font-bold text-lg text-center uppercase tracking-wide text-slate-800">{{ nomeMesAtual }} {{ ano }}</span>
+                                    <button @click="mudarMes(1)" class="px-4 py-2 bg-white border shadow-sm rounded hover:bg-slate-100 font-bold text-slate-600">▶</button>
+                                </div>
+
+                                <div class="grid grid-cols-7 gap-2">
+                                    <div v-for="d in ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']" class="text-center text-xs font-bold text-slate-500 mb-2">{{d}}</div>
+                                    <div v-for="v in offsetDias"></div>
+                                    <button v-for="dia in totalDias" :key="dia"
+                                        @click="selecionarDia(dia)"
+                                        :disabled="verificarPassado(dia)"
+                                        :class="['p-3 border rounded text-sm transition font-medium',
+                                                 diaEscolhido === dia ? 'bg-blue-600 text-white border-blue-600 shadow-md transform scale-105' :
+                                                 (diasLotados.includes(dia) && !verificarPassado(dia) ? 'bg-orange-100 border-orange-300 text-orange-800 hover:bg-orange-200' : 'bg-white hover:bg-blue-50 hover:border-blue-300'),
+                                                 verificarPassado(dia) ? 'opacity-30 bg-slate-100 cursor-not-allowed hover:bg-slate-100 hover:border-slate-200' : '']">
+                                        {{ dia }}
+                                    </button>
+                                </div>
+                                <div class="mt-4 flex items-center justify-end gap-4 text-xs font-bold text-slate-500">
+                                    <div class="flex items-center gap-1"><div class="w-3 h-3 bg-white border rounded"></div> Livre</div>
+                                    <div class="flex items-center gap-1"><div class="w-3 h-3 bg-orange-100 border border-orange-300 rounded"></div> Lotado</div>
+                                </div>
+                            </div>
+
+                            <!-- HORÁRIOS -->
+                            <div class="w-full md:w-80 bg-slate-50 p-5 border rounded-lg shadow-inner flex flex-col h-full min-h-[400px]">
+                                <h3 class="font-bold text-slate-800 border-b-2 border-slate-200 pb-3 mb-4">
+                                    Horários {{ diaEscolhido ? `(Dia ${diaEscolhido})` : '' }}
+                                </h3>
+
+                                <!-- SPINNER DOS HORÁRIOS -->
+                                <div v-if="carregandoHorarios" class="flex flex-col items-center justify-center flex-1 gap-3 text-slate-400">
+                                    <div class="spinner spinner-dark" style="width:32px;height:32px;border-width:4px"></div>
+                                    <p class="text-sm">Buscando horários...</p>
+                                </div>
+
+                                <div v-else-if="diaEscolhido" class="space-y-3 flex-1 overflow-y-auto pr-1">
+                                    <div v-for="h in horarios" :key="h.tempo"
+                                        class="flex items-center justify-between p-3 border rounded bg-white shadow-sm transition hover:shadow-md"
+                                        :class="{
+                                            'border-l-4 border-l-purple-500 bg-purple-50': h.minhaReserva,
+                                            'border-l-4 border-l-blue-500': h.vago && !h.minhaReserva,
+                                            'border-l-4 border-l-orange-500 opacity-80': !h.vago && !h.minhaReserva
+                                        }">
+                                        <div class="flex items-center gap-6">
+                                            <div class="flex flex-col min-w-[100px]">
+                                                <span class="font-bold text-slate-800 text-sm">{{ h.tempo }}</span>
+                                                <span v-if="h.minhaReserva" class="text-purple-600 text-[10px] font-bold uppercase tracking-wider">Sua Reserva</span>
+                                                <span v-else-if="h.vago" class="text-blue-600 text-[10px] font-bold uppercase tracking-wider">Disponível</span>
+                                                <span v-else class="text-orange-600 text-[10px] font-bold uppercase tracking-wider">Ocupado</span>
+                                            </div>
+                                            <div v-if="!h.vago && usuarioLogado && usuarioLogado.tipo_usuario === 'ADMINISTRADOR'"
+                                                class="flex flex-col border-l pl-4 border-slate-200 leading-tight">
+                                                <span class="text-xs font-semibold text-slate-700">{{ h.detalhesReserva?.nome }}</span>
+                                                <span class="text-[10px] text-slate-500 uppercase tracking-tighter">{{ h.detalhesReserva?.email }}</span>
+                                            </div>
+                                        </div>
+                                        <button v-if="h.vago" @click="acaoReservar(h)" class="btn-pequeno shadow">
+                                            Reservar
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div v-else class="flex flex-col items-center justify-center flex-1 text-center text-slate-400 p-4">
+                                    <p class="text-sm">Selecione uma data no calendário.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ABA MINHAS RESERVAS -->
+                <div v-if="abaAtiva === 'reservas'" class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-bold text-slate-800 border-b pb-4 mb-6">Histórico e Agendamentos Ativos</h2>
+
+                    <div v-if="minhasReservas.length === 0" class="text-center text-slate-500 py-10 bg-slate-50 rounded-lg border border-dashed">
+                        Você ainda não possui reservas.
+                    </div>
+
+                    <div v-else class="grid gap-4 md:grid-cols-2">
+                        <div v-for="reserva in minhasReservas" :key="reserva.id_reserva"
+                            class="border p-5 rounded-lg shadow-sm flex flex-col justify-between"
+                            :class="reserva.status === 'CONFIRMADA' ? 'border-l-4 border-l-blue-500' : 'border-l-4 border-l-orange-500'">
+                            <div>
+                                <h4 class="font-bold text-lg text-slate-800">{{ reserva.sala }}</h4>
+                                <p class="text-slate-500 text-sm">{{ reserva.localizacao }}</p>
+                                <p class="text-slate-600 mt-2">
+                                    <strong>Data:</strong> {{ new Date(reserva.data_reserva).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) }}
+                                </p>
+                                <p class="text-slate-600">
+                                    <strong>Horário:</strong> {{ reserva.hora_inicio.substring(0, 5) }} - {{ reserva.hora_fim.substring(0, 5) }}
+                                </p>
+                            </div>
+                            <div class="mt-4 flex justify-between items-center">
+                                <span :class="reserva.status === 'CONFIRMADA' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'"
+                                    class="px-3 py-1 rounded-full text-xs font-bold uppercase">
+                                    {{ reserva.status }}
+                                </span>
+                                <button v-if="reserva.status === 'CONFIRMADA'" @click="acaoCancelarReserva(reserva)"
+                                    class="text-sm font-bold text-red-500 hover:text-red-700 underline transition">
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ============================================ -->
+            <!-- PÁGINA 404                                  -->
+            <!-- ============================================ -->
+            <section v-if="tela === '404'" class="flex flex-col items-center justify-center min-h-[60vh] text-center p-8">
+                <div class="text-8xl mb-4">📅</div>
+                <h1 class="text-6xl font-black text-slate-800 mb-2">404</h1>
+                <p class="text-xl text-slate-500 mb-8">Página não encontrada</p>
+                <button @click="tela = usuarioLogado ? 'painel' : 'login'" class="btn-primario w-auto px-8">
+                    Voltar ao início
+                </button>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="apiServico.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
