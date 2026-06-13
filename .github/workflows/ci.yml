@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main, master ]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   testes:
     name: Rodar Testes Automatizados
@@ -42,11 +45,11 @@ jobs:
         working-directory: backend
         run: npm install
 
-      - name: Criar tabelas no banco de teste
+      - name: Configurar banco de teste
+        working-directory: backend
         env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d reservas_test -f database/banco_de_dados.sql
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/reservas_test
+        run: node tests/setup-banco.js
 
       - name: Rodar testes
         working-directory: backend
